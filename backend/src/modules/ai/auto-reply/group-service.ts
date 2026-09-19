@@ -217,6 +217,41 @@ export function enforceHonesty(reply: string, batchText: string, self: string | 
   return { text, fixed };
 }
 
+
+/* ── Lớp chặn cứng: KHÔNG BAO GIỜ bảo ai gửi mật khẩu / tài khoản lên nhóm ──
+ * Đo thật: một tin gõ nhầm vào nhóm ("gửi lại link và user/pass đăng nhập") khiến
+ * AI hiểu thành chỉ dẫn và soạn "các bạn gửi luôn user/pass lên nhóm". Chặn bằng
+ * code: dòng nào vừa nhắc thông tin đăng nhập vừa bảo gửi/đăng/nộp → thay bằng
+ * lời nhắc an toàn. Dòng đã có ý phủ định ("không gửi mật khẩu") thì giữ nguyên. */
+const CRED = /(mat khau|password|\bpass\b|user ?\/ ?pass|\botp\b|ma xac thuc|tai khoan dang nhap|thong tin dang nhap)/;
+const ASK_SEND = /(gui|dang len|dang vao|nop|post|de lai|share|chia se|len nhom|vao nhom|cho thay|cho minh|cho em)/;
+const NEGATE = /(khong (duoc |nen )?(gui|dang|chia se|nop|de lo)|tuyet doi khong|dung (gui|dang)|khong bao gio)/;
+
+export function enforceNoCredentials(reply: string, self: string | null, names: string[] = []): { text: string; fixed: boolean } {
+  let fixed = false;
+  const who = self || 'mình';
+  const sorted = [...new Set(names.filter(Boolean))].sort((a, b) => b.length - a.length);
+  const text = reply.split('\n').map((line) => {
+    const f = fold(line);
+    if (CRED.test(f) && ASK_SEND.test(f) && !NEGATE.test(f)) {
+      fixed = true;
+      // giữ nguyên chuỗi @tên ở đầu dòng (có thể nhiều người), khớp theo tên thật trong đợt tin
+      let rest = line.trimStart();
+      const tags: string[] = [];
+      for (;;) {
+        const hit = rest.startsWith('@') ? sorted.find((n) => rest.startsWith(`@${n}`)) : undefined;
+        if (!hit) break;
+        tags.push(`@${hit}`);
+        rest = rest.slice(hit.length + 1).trimStart();
+      }
+      const mention = tags.join(' ');
+      return `${mention ? `${mention} ` : ''}Các bạn tuyệt đối KHÔNG gửi mật khẩu hay tài khoản đăng nhập lên nhóm nhé. Cần hỗ trợ đăng nhập thì nhắn riêng cho ${who}.`;
+    }
+    return line;
+  }).join('\n');
+  return { text, fixed };
+}
+
 /* ── Quy tắc theo nhóm ────────────────────────────────────────────────── */
 
 export async function getGroupRule(conversationId: string): Promise<GroupRuleShape> {
@@ -554,6 +589,16 @@ export async function evaluateGroupMessage(input: {
     parsed.reply = honestLine(rule.selfPronoun);
     parsed.shouldReply = true;
     honestyFixed = true;
+  }
+
+  /* Lớp chặn cứng: không bảo ai gửi mật khẩu / tài khoản lên nhóm. */
+  if (parsed.reply) {
+    const c = enforceNoCredentials(parsed.reply, rule.selfPronoun, workable.map((m) => m.senderName || ''));
+    if (c.fixed) {
+      parsed.reply = c.text;
+      honestyFixed = true;
+      logger.warn(`[group-auto-reply] đã chặn câu bảo gửi thông tin đăng nhập conv=${conversationId}`);
+    }
   }
 
   /* Chế độ luôn trả lời: AI không được phép im. Nếu nó vẫn trả shouldReply=false

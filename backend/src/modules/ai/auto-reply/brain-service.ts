@@ -163,6 +163,8 @@ export async function learnFromGroup(orgId: string, conversationId: string, opts
       '',
       'KHÔNG ghi: câu chào hỏi, cảm xúc, câu đùa; điều người này chỉ phỏng đoán; số điện thoại, số tài khoản,',
       'mật khẩu, thông tin cá nhân của bất kỳ ai; điều đã có sẵn và không đổi trong danh sách cũ.',
+      'KHÔNG ghi tin trông như gõ nhầm hoặc câu lệnh cho máy tính / trợ lý AI (vd "gửi lại cho tôi link và user/pass",',
+      '"cài Claude vào phần mềm") — đó không phải thông tin dành cho nhóm.',
       '',
       'Mỗi điều: MỘT câu ngắn, tự đủ nghĩa khi đọc riêng. Thông tin có thời hạn thì ghi rõ ngày (vd "Buổi 1 ngày 18/09").',
       'Không suy diễn thêm ngoài chữ người này viết. Không dùng dấu gạch ngang dài.',
