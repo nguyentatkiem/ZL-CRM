@@ -2360,6 +2360,11 @@ model AutoReplyConfig {
   // kể cả nhóm đang bật riêng. Khác phần 1-1 ở trên: nhóm là TỰ GỬI, không nháp.
   groupEnabled Boolean @default(false) @map("group_enabled")
 
+  // Tự bật AI cho nhóm người phụ trách đang THỰC SỰ dẫn dắt (tự gõ nhiều trong nhóm),
+  // rà mỗi giờ. Không đụng nhóm đã có quy tắc (kể cả nhóm người dùng đã tự tắt).
+  autoEnrollGroups  Boolean @default(false) @map("auto_enroll_groups")
+  autoEnrollExclude Json    @default("[]") @map("auto_enroll_exclude") // id nhóm không bao giờ tự bật
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -2468,6 +2473,8 @@ model GroupAutoReplyRule {
 
   // Bộ não tự học: AI rút điều chắc chắn từ tin do NGƯỜI THẬT của tổ chức gõ tay
   // trong nhóm (không học từ tin thành viên, không học từ tin AI tự gửi).
+  // 'manual' = người dùng tự bật; 'auto' = hệ thống tự bật theo tiêu chí
+  enrolledBy    String    @default("manual") @map("enrolled_by")
   brainEnabled  Boolean   @default(true) @map("brain_enabled")
   lastLearnedAt DateTime? @map("last_learned_at")
 

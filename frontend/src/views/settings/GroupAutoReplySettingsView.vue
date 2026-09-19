@@ -35,6 +35,18 @@
           </div>
         </div>
       </v-card-text>
+      <v-divider />
+      <v-card-text class="d-flex align-center flex-wrap" style="gap: 12px;">
+        <v-switch :model-value="autoEnroll" color="primary" inset hide-details @update:model-value="toggleAutoEnroll" />
+        <div>
+          <div class="gar-master-label">Tự bật cho nhóm Thầy đang dẫn dắt: {{ autoEnroll ? 'BẬT' : 'TẮT' }}</div>
+          <div class="gar-master-sub">
+            Mỗi giờ tự rà: nhóm nào Thầy tự nhắn từ 10 tin trở lên trong 30 ngày, 20 đến 300 thành viên, có người nhắn trong tuần,
+            thì tự bật (xưng Thầy, luôn trả lời, học lịch sử). Bỏ qua nhóm khách doanh nghiệp, coaching riêng, nội bộ, đối tác.
+            Nhóm đã tự tắt thì không bao giờ tự bật lại.
+          </div>
+        </div>
+      </v-card-text>
     </v-card>
 
     <v-alert v-if="loadError" type="error" density="compact" class="mb-4">{{ loadError }}</v-alert>
@@ -80,7 +92,7 @@
                 />
               </td>
               <td>
-                <div class="gar-name">{{ g.groupName }}</div>
+                <div class="gar-name">{{ g.groupName }} <span v-if="g.enrolledBy === 'auto'" class="gar-tag-auto">tự bật</span></div>
                 <div v-if="g.nickPrivate" class="gar-tag-private">nick Riêng tư</div>
               </td>
               <td class="gar-muted">{{ g.nick || '—' }}</td>
@@ -279,6 +291,7 @@ interface GroupRow {
   enabled: boolean;
   triggerMode: TriggerMode;
   alwaysReply: boolean;
+  enrolledBy: string | null;
   sentLast24h: number;
 }
 
@@ -287,6 +300,7 @@ interface LogRow { id: string; decision: string; reason: string | null; content:
 const toast = useToast();
 
 const groupEnabled = ref(false);
+const autoEnroll = ref(false);
 const savingMaster = ref(false);
 const groups = ref<GroupRow[]>([]);
 const loading = ref(false);
@@ -455,6 +469,7 @@ async function loadAll() {
       api.get('/group-auto-reply/groups'),
     ]);
     groupEnabled.value = !!cfg.data.groupEnabled;
+    autoEnroll.value = !!cfg.data.autoEnrollGroups;
     groups.value = list.data;
   } catch (err) {
     loadError.value = errorText(err, 'Không tải được danh sách nhóm');
@@ -477,6 +492,17 @@ async function toggleMaster(value: boolean | null) {
     toast.push(errorText(err, 'Không đổi được công tắc tổng'), 'error');
   } finally {
     savingMaster.value = false;
+  }
+}
+
+async function toggleAutoEnroll(value: boolean | null) {
+  try {
+    const res = await api.put('/group-auto-reply/config', { autoEnrollGroups: !!value });
+    autoEnroll.value = !!res.data.autoEnrollGroups;
+    toast.push(autoEnroll.value ? 'Đã bật tự động, đang rà nhóm…' : 'Đã tắt tự bật nhóm', 'success');
+    if (autoEnroll.value) setTimeout(loadAll, 4000);
+  } catch (err) {
+    toast.push(errorText(err, 'Không đổi được'), 'error');
   }
 }
 
@@ -645,4 +671,5 @@ onMounted(loadAll);
 .gar-brain-row--off .gar-brain-text { opacity: 0.45; text-decoration: line-through; }
 .gar-brain-text { flex: 1; font-size: 12.5px; line-height: 1.5; padding-top: 6px; }
 .gar-brain-src { font-size: 10.5px; opacity: 0.55; padding-top: 8px; white-space: nowrap; }
+.gar-tag-auto { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; background: rgba(0, 119, 182, 0.12); color: #0077b6; margin-left: 4px; }
 </style>

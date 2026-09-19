@@ -15,6 +15,7 @@ import {
   type GroupRuleShape,
 } from './group-service.js';
 import { getBrain, learnFromGroup } from './brain-service.js';
+import { findEnrollCandidates, runAutoEnroll } from './auto-enroll-service.js';
 
 export async function groupAutoReplyRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
@@ -23,8 +24,10 @@ export async function groupAutoReplyRoutes(app: FastifyInstance) {
 
   app.get('/api/v1/group-auto-reply/config', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const cfg = await getAutoReplyConfig(request.user!.orgId);
-      return { groupEnabled: cfg.groupEnabled };
+      const orgId = request.user!.orgId;
+      const cfg = await getAutoReplyConfig(orgId);
+      const extra = await prisma.autoReplyConfig.findUnique({ where: { orgId }, select: { autoEnrollGroups: true } });
+      return { groupEnabled: cfg.groupEnabled, autoEnrollGroups: !!extra?.autoEnrollGroups };
     } catch (err) {
       logger.error('[group-auto-reply] đọc cấu hình lỗi:', err);
       return reply.status(500).send({ error: 'Không đọc được cấu hình' });
@@ -33,14 +36,35 @@ export async function groupAutoReplyRoutes(app: FastifyInstance) {
 
   app.put('/api/v1/group-auto-reply/config', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const { groupEnabled } = (request.body ?? {}) as { groupEnabled?: boolean };
-      if (typeof groupEnabled !== 'boolean') return reply.status(400).send({ error: 'groupEnabled phải là true hoặc false' });
-      const cfg = await updateAutoReplyConfig(request.user!.orgId, { groupEnabled });
-      logger.info(`[group-auto-reply] công tắc tổng → ${groupEnabled ? 'BẬT' : 'TẮT'} bởi user=${request.user!.id}`);
-      return { groupEnabled: cfg.groupEnabled };
+      const orgId = request.user!.orgId;
+      const { groupEnabled, autoEnrollGroups } = (request.body ?? {}) as { groupEnabled?: boolean; autoEnrollGroups?: boolean };
+      if (groupEnabled !== undefined && typeof groupEnabled !== 'boolean') return reply.status(400).send({ error: 'groupEnabled phải là true hoặc false' });
+      if (autoEnrollGroups !== undefined && typeof autoEnrollGroups !== 'boolean') return reply.status(400).send({ error: 'autoEnrollGroups phải là true hoặc false' });
+      let cfg = await getAutoReplyConfig(orgId);
+      if (groupEnabled !== undefined) {
+        cfg = await updateAutoReplyConfig(orgId, { groupEnabled });
+        logger.info(`[group-auto-reply] công tắc tổng → ${groupEnabled ? 'BẬT' : 'TẮT'} bởi user=${request.user!.id}`);
+      }
+      if (autoEnrollGroups !== undefined) {
+        await prisma.autoReplyConfig.update({ where: { orgId }, data: { autoEnrollGroups } });
+        logger.info(`[auto-enroll] tự bật nhóm → ${autoEnrollGroups ? 'BẬT' : 'TẮT'} bởi user=${request.user!.id}`);
+        if (autoEnrollGroups) void runAutoEnroll(orgId).catch((err) => logger.error('[auto-enroll] lỗi:', err));
+      }
+      const extra = await prisma.autoReplyConfig.findUnique({ where: { orgId }, select: { autoEnrollGroups: true } });
+      return { groupEnabled: cfg.groupEnabled, autoEnrollGroups: !!extra?.autoEnrollGroups };
     } catch (err) {
       logger.error('[group-auto-reply] lưu cấu hình lỗi:', err);
       return reply.status(500).send({ error: 'Không lưu được cấu hình' });
+    }
+  });
+
+  /** Xem trước những nhóm sẽ được tự bật (chưa bật gì). */
+  app.get('/api/v1/group-auto-reply/auto-enroll/preview', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      return await findEnrollCandidates(request.user!.orgId);
+    } catch (err) {
+      logger.error('[auto-enroll] xem trước lỗi:', err);
+      return reply.status(500).send({ error: 'Không xem trước được' });
     }
   });
 
@@ -63,7 +87,7 @@ export async function groupAutoReplyRoutes(app: FastifyInstance) {
         select: {
           id: true, groupName: true, groupAvatarUrl: true, groupMembersCount: true, lastMessageAt: true,
           zaloAccount: { select: { id: true, displayName: true, privacyMode: true } },
-          groupAutoReplyRule: { select: { enabled: true, triggerMode: true, alwaysReply: true } },
+          groupAutoReplyRule: { select: { enabled: true, triggerMode: true, alwaysReply: true, enrolledBy: true } },
         },
       });
 
@@ -86,6 +110,7 @@ export async function groupAutoReplyRoutes(app: FastifyInstance) {
         enabled: g.groupAutoReplyRule?.enabled ?? false,
         triggerMode: g.groupAutoReplyRule?.triggerMode ?? 'question',
         alwaysReply: g.groupAutoReplyRule?.alwaysReply ?? false,
+        enrolledBy: g.groupAutoReplyRule?.enrolledBy ?? null,
         sentLast24h: sent24h.get(g.id) ?? 0,
       }));
     } catch (err) {

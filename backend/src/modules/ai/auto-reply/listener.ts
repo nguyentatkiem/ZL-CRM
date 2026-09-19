@@ -10,6 +10,7 @@ import { automationEventBus } from '../../automation/engine/event-bus.js';
 import { generateDraftForMessage } from './draft-service.js';
 import { isGroupWatched, scheduleGroupEvaluation } from './group-service.js';
 import { startBrainScheduler } from './brain-service.js';
+import { startAutoEnrollScheduler } from './auto-enroll-service.js';
 
 let started = false;
 
@@ -62,5 +63,6 @@ export function startAutoReplyListener(): void {
   });
 
   startBrainScheduler();
+  startAutoEnrollScheduler();
   logger.info('[auto-reply] listener đã bật — nháp cho chat 1-1, tự trả lời cho nhóm được chỉ định');
 }
