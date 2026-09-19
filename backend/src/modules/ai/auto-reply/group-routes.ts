@@ -131,9 +131,18 @@ export async function groupAutoReplyRoutes(app: FastifyInstance) {
       const invalid = validateRuleInput(body);
       if (invalid) return reply.status(400).send({ error: invalid });
 
+      const wasEnabled = (await getGroupRule(conversationId)).enabled;
       const rule = await upsertGroupRule(user.orgId, conversationId, user.id, body);
       if (body.enabled !== undefined) {
         logger.info(`[group-auto-reply] nhóm "${group.groupName}" → ${body.enabled ? 'BẬT' : 'TẮT'} bởi user=${user.id}`);
+      }
+      /* Vừa bật: xử lý luôn các tin đang chờ trong 10 phút gần nhất, không bắt người
+         trong nhóm phải nhắn thêm mới được trả lời. Chạy nền, không chặn phản hồi. */
+      if (body.enabled === true && !wasEnabled) {
+        const since = new Date(Date.now() - 10 * 60_000);
+        void evaluateGroupMessage({ orgId: user.orgId, conversationId, backlogSince: since })
+          .then((r) => logger.info(`[group-auto-reply] vừa bật "${group.groupName}", xử lý tin chờ: ${r.decision} (${r.reason})`))
+          .catch((err) => logger.error('[group-auto-reply] xử lý tin chờ khi bật lỗi:', err));
       }
       return rule;
     } catch (err) {

@@ -252,6 +252,59 @@ export function enforceNoCredentials(reply: string, self: string | null, names: 
   return { text, fixed };
 }
 
+
+/* ── Kiểm duyệt căn cứ: lượt AI thứ hai soát tin TRƯỚC KHI GỬI ─────────────
+ * Đo thật: khi bị buộc phải trả lời (bị gọi tên), mô hình đã bịa "hôm nay có ghi
+ * hình đầy đủ, Thầy sẽ gửi link" dù không nguồn nào nói vậy — tin đi thẳng vào
+ * nhóm nhân danh người phụ trách. Dặn trong prompt không đủ. Nên soát lại bằng một
+ * lượt riêng, chỉ làm một việc: tìm khẳng định sự thật / cam kết không có căn cứ
+ * trong NGUỒN, rồi viết lại thành câu ghi nhận + hẹn thông tin lại.
+ * Lỗi khi soát → KHÔNG gửi (an toàn trước, im còn hơn nói sai). */
+export async function verifyGrounding(input: {
+  provider: string; apiKey: string; model: string;
+  reply: string; sources: string; self: string | null;
+}): Promise<{ ok: boolean; text: string; unsupported: string[] } | null> {
+  const self = input.self || 'người phụ trách';
+  const system = [
+    'Bạn là người KIỂM DUYỆT một tin nhắn sắp được gửi vào nhóm Zalo thay mặt ' + self + '.',
+    'Bạn nhận NGUỒN (kiến thức nhóm, kịch bản, lời dặn, lịch sử chat) và TIN SẮP GỬI.',
+    '',
+    'Việc duy nhất: tìm mọi KHẲNG ĐỊNH SỰ THẬT hoặc CAM KẾT trong tin mà NGUỒN không nêu rõ.',
+    'Ví dụ cần bắt: có/không có ghi hình, giờ học, địa điểm, giá, học phí, ngày, tính năng sản phẩm,',
+    '"sẽ gửi link", "sẽ có tài liệu", kết quả chắc chắn, bất kỳ con số nào.',
+    'KHÔNG tính: lời chào, cảm ơn, lời khuyên chung, ý kiến, câu ghi nhận, câu hẹn "sẽ thông tin lại / sẽ giải đáp".',
+    '',
+    'Nếu có khẳng định không căn cứ: viết lại TOÀN BỘ tin, giữ nguyên xưng hô, giữ nguyên @tên đầu dòng,',
+    'giữ các phần có căn cứ, thay phần không căn cứ bằng câu ghi nhận và hẹn ' + self + ' sẽ thông tin lại.',
+    'Không thêm thông tin mới. Không dùng dấu gạch ngang dài.',
+    '',
+    'Trả DUY NHẤT JSON: {"ok": true|false, "unsupported": ["khẳng định không căn cứ"], "rewrite": "tin đã viết lại, rỗng nếu ok"}',
+  ].join('\n');
+  const prompt = ['<nguon>', input.sources || '(không có)', '</nguon>', '', '<tin_sap_gui>', input.reply, '</tin_sap_gui>'].join('\n');
+  let raw: string;
+  try {
+    raw = await generateText(input.provider, input.apiKey, input.model, system, prompt, 900);
+  } catch {
+    return null;
+  }
+  let t = raw.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  const a = t.indexOf('{'); const b = t.lastIndexOf('}');
+  if (a === -1 || b <= a) return null;
+  try {
+    const p = JSON.parse(t.slice(a, b + 1)) as { ok?: unknown; unsupported?: unknown; rewrite?: unknown };
+    const unsupported = Array.isArray(p.unsupported) ? p.unsupported.filter((x): x is string => typeof x === 'string') : [];
+    const ok = p.ok === true && unsupported.length === 0;
+    if (ok) return { ok: true, text: input.reply, unsupported: [] };
+    const rewrite = typeof p.rewrite === 'string' ? p.rewrite.trim() : '';
+    if (!rewrite) return null;
+    return { ok: false, text: rewrite, unsupported };
+  } catch {
+    return null;
+  }
+}
+
 /* ── Quy tắc theo nhóm ────────────────────────────────────────────────── */
 
 export async function getGroupRule(conversationId: string): Promise<GroupRuleShape> {
@@ -473,6 +526,10 @@ export async function evaluateGroupMessage(input: {
 
   const nickName = conversation.zaloAccount?.displayName ?? null;
   const wouldTrigger = workable.some((m) => passesTrigger(rule.triggerMode, m.content ?? '', nickName, rule.callNames));
+  /* Có người gọi thẳng tên nick (@tên hoặc tên gọi) → bắt buộc đáp, dù nhóm đang ở
+     chế độ được quyền im. Bị tag thẳng mà im thì tệ hơn là ghi nhận và hẹn lại. */
+  const calledDirectly = workable.some((m) => isCalled(m.content ?? '', nickName, rule.callNames));
+  const mustReply = rule.alwaysReply || calledDirectly;
 
   if (!dryRun) {
     const hour = vnHour();
@@ -551,7 +608,7 @@ export async function evaluateGroupMessage(input: {
         botName,
         instruction: rule.instruction,
         orgInstruction: config.extraInstruction,
-        alwaysReply: rule.alwaysReply,
+        alwaysReply: mustReply,
         persona: {
           speakerRole: rule.speakerRole,
           selfPronoun: rule.selfPronoun,
@@ -603,7 +660,37 @@ export async function evaluateGroupMessage(input: {
 
   /* Chế độ luôn trả lời: AI không được phép im. Nếu nó vẫn trả shouldReply=false
      mà có nội dung thì dùng nội dung; không có nội dung thì ghi lỗi để thấy. */
-  if (rule.alwaysReply && !parsed.shouldReply && parsed.reply) parsed.shouldReply = true;
+  if (mustReply && !parsed.shouldReply && parsed.reply) parsed.shouldReply = true;
+
+  /* Kiểm duyệt căn cứ — chạy cho cả chạy thử để thấy đúng hành vi thật. */
+  let groundingNote = '';
+  if (parsed.shouldReply && parsed.reply) {
+    const sources = [
+      rule.instruction ? `[Lời dặn riêng]\n${rule.instruction}` : '',
+      config.extraInstruction ? `[Lời dặn chung]\n${config.extraInstruction}` : '',
+      brainText ? `[Kiến thức nhóm đã học]\n${brainText}` : '',
+      `[Kịch bản]\n${playbookText}`,
+      `[Lịch sử chat]\n${historyText}`,
+      `[Đợt tin đang trả lời]\n${workable.map((m) => `${m.senderName || 'thành viên'}: ${clip(m.content ?? '', 500)}`).join('\n')}`,
+    ].filter(Boolean).join('\n\n');
+    const v = await verifyGrounding({
+      provider: aiConfig.provider, apiKey, model: aiConfig.model,
+      reply: parsed.reply, sources, self: rule.selfPronoun,
+    });
+    if (!v) {
+      const d: GroupDecision = { decision: 'failed', reason: 'Kiểm duyệt căn cứ không chạy được, không gửi để an toàn', content: parsed.reply, latencyMs: Date.now() - started, batchSize: workable.length };
+      await log(orgId, conversationId, last.id, d);
+      return d;
+    }
+    if (!v.ok) {
+      // viết lại xong vẫn phải qua lại các lớp chặn cứng
+      let fixedText = enforceHonesty(v.text, batchText, rule.selfPronoun, workable.map((m) => m.senderName || '')).text;
+      fixedText = enforceNoCredentials(fixedText, rule.selfPronoun, workable.map((m) => m.senderName || '')).text;
+      parsed.reply = fixedText;
+      groundingNote = ` [kiểm duyệt đã sửa ${v.unsupported.length} khẳng định không căn cứ: ${v.unsupported.slice(0, 3).join('; ')}]`;
+      logger.warn(`[group-auto-reply] kiểm duyệt đã sửa khẳng định không căn cứ conv=${conversationId}: ${v.unsupported.join(' | ')}`);
+    }
+  }
 
   if (dryRun) {
     const d: GroupDecision = {
@@ -611,7 +698,7 @@ export async function evaluateGroupMessage(input: {
       shouldReply: parsed.shouldReply,
       wouldTrigger,
       content: parsed.shouldReply ? parsed.reply : null,
-      reason: `${parsed.reason || (parsed.shouldReply ? 'AI chọn trả lời' : 'AI chọn im lặng')}${honestyFixed ? ' [đã sửa câu về danh tính AI]' : ''}`,
+      reason: `${parsed.reason || (parsed.shouldReply ? 'AI chọn trả lời' : 'AI chọn im lặng')}${honestyFixed ? ' [đã sửa câu về danh tính AI]' : ''}${groundingNote}`,
       latencyMs,
       batchSize: workable.length,
     };
@@ -621,8 +708,8 @@ export async function evaluateGroupMessage(input: {
 
   if (!parsed.shouldReply) {
     const d: GroupDecision = {
-      decision: rule.alwaysReply ? 'failed' : 'ai_declined',
-      reason: rule.alwaysReply ? `Chế độ luôn trả lời nhưng AI không đưa nội dung: ${parsed.reason}` : (parsed.reason || 'AI chọn im lặng'),
+      decision: mustReply ? 'failed' : 'ai_declined',
+      reason: mustReply ? `Bắt buộc trả lời (${calledDirectly ? 'bị gọi tên' : 'luôn trả lời'}) nhưng AI không đưa nội dung: ${parsed.reason}` : (parsed.reason || 'AI chọn im lặng'),
       latencyMs, batchSize: workable.length,
     };
     await log(orgId, conversationId, last.id, d);
@@ -698,7 +785,7 @@ export async function evaluateGroupMessage(input: {
 
   const d: GroupDecision = {
     decision: 'sent',
-    reason: `${parsed.reason || 'AI trả lời'} (gộp ${workable.length} tin${blockedHits.length ? `, bỏ ${blockedHits.length} tin nhạy cảm` : ''}${honestyFixed ? ', đã sửa câu về danh tính AI' : ''})`,
+    reason: `${parsed.reason || 'AI trả lời'} (gộp ${workable.length} tin${blockedHits.length ? `, bỏ ${blockedHits.length} tin nhạy cảm` : ''}${honestyFixed ? ', đã sửa câu về danh tính AI' : ''})${groundingNote}`,
     content: parsed.reply, latencyMs, batchSize: workable.length,
   };
   await log(orgId, conversationId, last.id, { ...d, zaloMsgId });
