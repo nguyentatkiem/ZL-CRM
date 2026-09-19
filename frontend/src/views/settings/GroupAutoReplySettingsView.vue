@@ -49,6 +49,55 @@
       </v-card-text>
     </v-card>
 
+    <!-- ════════ Trợ lý Telegram ════════ -->
+    <v-card variant="outlined" class="mb-4">
+      <v-card-text>
+        <div class="d-flex align-center mb-2" style="gap: 10px;">
+          <v-icon color="#229ED9">mdi-send-circle</v-icon>
+          <div class="gar-master-label">Trợ lý Telegram</div>
+          <span v-if="tg.username" class="gar-tg-pill" :class="tg.status === 'đang chạy' ? 'gar-tg-pill--ok' : 'gar-tg-pill--warn'">
+            @{{ tg.username }} · {{ tg.status }}
+          </span>
+          <span v-else class="gar-tg-pill gar-tg-pill--warn">{{ tg.status }}</span>
+        </div>
+        <p class="gar-muted gar-small mb-3">
+          Báo lên Telegram mỗi khi AI trả lời trong nhóm (kèm cờ câu Thầy nên tự trả lời), và điều khiển từ điện thoại:
+          /trangthai, /dung (dừng khẩn cấp), /chay, /homnay, /hoi. Chỉ tài khoản đã ghép cặp mới dùng được.
+        </p>
+
+        <div v-if="!tg.hasToken" class="gar-tg-steps mb-3">
+          <b>Tạo bot (30 giây, trên điện thoại):</b> mở Telegram → tìm <b>@BotFather</b> → gõ <code>/newbot</code> →
+          đặt tên (vd <i>Trợ lý ZL CRM</i>) → đặt username kết thúc bằng <code>bot</code> → BotFather gửi lại một token dạng
+          <code>123456789:ABC…</code>. Copy token đó dán vào ô dưới. Dùng bot <b>mới</b>, không dùng lại bot đang chạy ở chương trình khác.
+        </div>
+
+        <div class="d-flex" style="gap: 8px;">
+          <v-text-field v-model="tgToken" type="password" density="compact" hide-details autocomplete="off"
+            :placeholder="tg.hasToken ? 'Đã có token. Dán token khác để thay' : 'Dán token BotFather vào đây'" />
+          <v-btn color="primary" :loading="tgSaving" :disabled="!tgToken.trim()" @click="saveTgToken">Lưu token</v-btn>
+        </div>
+        <div v-if="tgError" class="gar-tg-err mt-2">{{ tgError }}</div>
+
+        <template v-if="tg.pairLink">
+          <v-divider class="my-3" />
+          <div v-if="tg.chats.length === 0">
+            <b>Bước cuối: ghép cặp.</b> Mở link này trên điện thoại (hoặc máy có Telegram), bấm <b>Start</b>:
+          </div>
+          <div v-else>Đã ghép cặp: <b>{{ tg.chats.map((c) => c.name).join(', ') }}</b>. Muốn thêm máy khác thì mở link:</div>
+          <div class="d-flex align-center mt-2" style="gap: 8px;">
+            <code class="gar-tg-link">{{ tg.pairLink }}</code>
+            <v-btn size="small" variant="tonal" @click="copyTgLink">Copy</v-btn>
+            <v-btn size="small" variant="tonal" :href="tg.pairLink" target="_blank">Mở</v-btn>
+          </div>
+          <div class="d-flex mt-3" style="gap: 8px;">
+            <v-btn size="small" variant="tonal" color="primary" :disabled="tg.chats.length === 0" @click="testTg">Gửi tin thử</v-btn>
+            <v-btn size="small" variant="text" color="error" :disabled="tg.chats.length === 0" @click="resetTg">Huỷ ghép cặp và đổi link</v-btn>
+            <v-btn size="small" variant="text" @click="loadTg">Làm mới</v-btn>
+          </div>
+        </template>
+      </v-card-text>
+    </v-card>
+
     <v-alert v-if="loadError" type="error" density="compact" class="mb-4">{{ loadError }}</v-alert>
 
     <!-- ════════ Danh sách nhóm ════════ -->
@@ -276,7 +325,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
 
@@ -301,6 +350,50 @@ const toast = useToast();
 
 const groupEnabled = ref(false);
 const autoEnroll = ref(false);
+
+const tg = reactive({ hasToken: false, username: null as string | null, status: '', pairLink: null as string | null, chats: [] as Array<{ name: string; pairedAt: string }> });
+const tgToken = ref('');
+const tgSaving = ref(false);
+const tgError = ref('');
+let tgTimer: ReturnType<typeof setInterval> | null = null;
+
+async function loadTg() {
+  try {
+    const res = await api.get('/telegram/status');
+    Object.assign(tg, res.data);
+  } catch { /* im lặng */ }
+}
+
+async function saveTgToken() {
+  tgSaving.value = true;
+  tgError.value = '';
+  try {
+    const res = await api.put('/telegram/token', { token: tgToken.value.trim() });
+    Object.assign(tg, res.data);
+    tgToken.value = '';
+    toast.push(`Đã nối bot @${res.data.username}. Giờ mở link ghép cặp.`, 'success', 4000);
+  } catch (err) {
+    tgError.value = errorText(err, 'Không lưu được token');
+  } finally {
+    tgSaving.value = false;
+  }
+}
+
+async function copyTgLink() {
+  if (!tg.pairLink) return;
+  try { await navigator.clipboard.writeText(tg.pairLink); toast.push('Đã copy link ghép cặp', 'success'); } catch { /* bỏ qua */ }
+}
+
+async function testTg() {
+  try { await api.post('/telegram/test'); toast.push('Đã gửi tin thử, xem Telegram nhé', 'success'); }
+  catch (err) { toast.push(errorText(err, 'Gửi thử lỗi'), 'error'); }
+}
+
+async function resetTg() {
+  if (!confirm('Huỷ mọi ghép cặp và tạo link mới? Máy đã ghép sẽ không dùng bot được nữa.')) return;
+  try { const res = await api.post('/telegram/reset-pairing'); Object.assign(tg, res.data); toast.push('Đã huỷ ghép cặp, link mới đã tạo', 'success'); }
+  catch (err) { toast.push(errorText(err, 'Không huỷ được'), 'error'); }
+}
 const savingMaster = ref(false);
 const groups = ref<GroupRow[]>([]);
 const loading = ref(false);
@@ -589,7 +682,13 @@ async function dryRun() {
   }
 }
 
-onMounted(loadAll);
+onMounted(() => {
+  void loadAll();
+  void loadTg();
+  // tự làm mới trạng thái Telegram để thấy ngay khi vừa ghép cặp xong trên điện thoại
+  tgTimer = setInterval(loadTg, 5000);
+});
+onBeforeUnmount(() => { if (tgTimer) clearInterval(tgTimer); });
 </script>
 
 <style scoped>
@@ -672,4 +771,11 @@ onMounted(loadAll);
 .gar-brain-text { flex: 1; font-size: 12.5px; line-height: 1.5; padding-top: 6px; }
 .gar-brain-src { font-size: 10.5px; opacity: 0.55; padding-top: 8px; white-space: nowrap; }
 .gar-tag-auto { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; background: rgba(0, 119, 182, 0.12); color: #0077b6; margin-left: 4px; }
+.gar-tg-pill { font-size: 11.5px; padding: 2px 9px; border-radius: 10px; }
+.gar-tg-pill--ok { background: rgba(46, 125, 50, 0.12); color: #2e7d32; }
+.gar-tg-pill--warn { background: rgba(230, 81, 0, 0.1); color: #bf360c; }
+.gar-tg-steps { font-size: 12.5px; line-height: 1.6; background: rgba(34, 158, 217, 0.07); border-radius: 8px; padding: 9px 12px; }
+.gar-tg-steps code, .gar-tg-link { font-size: 12px; background: rgba(0, 0, 0, 0.05); padding: 1px 5px; border-radius: 4px; }
+.gar-tg-link { word-break: break-all; }
+.gar-tg-err { font-size: 12px; color: #c62828; }
 </style>

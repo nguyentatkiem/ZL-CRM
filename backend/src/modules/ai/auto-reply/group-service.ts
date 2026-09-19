@@ -34,6 +34,7 @@ import { buildGroupAutoReplyPrompt } from '../prompts/group-auto-reply.js';
 import { getAutoReplyConfig } from './config-service.js';
 import { matchesAnyKeyword, pickPlaybook } from './context-builder.js';
 import { renderBrainForPrompt, learnFromGroup } from './brain-service.js';
+import { notifyOwners, esc } from '../telegram/telegram-assistant.js';
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 const MAX_MESSAGE_AGE_MS = 5 * 60_000;
@@ -389,7 +390,18 @@ export async function upsertGroupRule(orgId: string, conversationId: string, use
 
 /* ── Lõi: xét một tin và quyết định ───────────────────────────────────── */
 
+const lastFailAlert = new Map<string, number>();
+
+async function alertFailure(orgId: string, conversationId: string, reason: string) {
+  const now = Date.now();
+  if (now - (lastFailAlert.get(conversationId) ?? 0) < 10 * 60_000) return;
+  lastFailAlert.set(conversationId, now);
+  const c = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { groupName: true } });
+  await notifyOwners(orgId, `❗ <b>${esc(c?.groupName || 'Nhóm')}</b>: AI không trả lời được.\n${esc(reason.slice(0, 300))}`);
+}
+
 async function log(orgId: string, conversationId: string, sourceMessageId: string | null, d: GroupDecision & { zaloMsgId?: string | null }) {
+  if (d.decision === 'failed') void alertFailure(orgId, conversationId, d.reason || '').catch(() => undefined);
   try {
     await prisma.groupAutoReplyLog.create({
       data: {
@@ -789,6 +801,20 @@ export async function evaluateGroupMessage(input: {
     content: parsed.reply, latencyMs, batchSize: workable.length,
   };
   await log(orgId, conversationId, last.id, { ...d, zaloMsgId });
+
+  /* Báo lên Telegram của chủ tổ chức. Kiểm duyệt phải sửa = có câu AI không trả lời
+     được bằng căn cứ → người thật nên vào trả lời, đánh dấu riêng cho dễ thấy. */
+  void (async () => {
+    const asked = workable.map((m) => `• ${esc(m.senderName || 'thành viên')}: ${esc(clip(m.content ?? '', 140))}`).join('\n');
+    const needsHuman = groundingNote
+      ? `\n\n⚠️ <b>${esc(rule.selfPronoun || 'Người phụ trách')} nên tự trả lời</b>, AI đã phải bỏ khẳng định không có căn cứ:\n${esc(groundingNote.replace(/^ \[|\]$/g, ''))}`
+      : '';
+    await notifyOwners(
+      orgId,
+      `🤖 <b>${esc(conversation.groupName || 'Nhóm')}</b>: AI vừa trả lời ${workable.length} tin\n\n<b>Hỏi:</b>\n${asked}\n\n<b>AI đã gửi:</b>\n${esc(clip(parsed.reply, 900))}${needsHuman}`,
+      [[{ text: '⏸ Dừng nhóm này', data: `pause:${conversationId}` }, { text: '🔴 Dừng tất cả', data: 'stop_all' }]],
+    );
+  })().catch(() => undefined);
   logger.info(`[group-auto-reply] đã trả lời nhóm "${conversation.groupName}" gộp ${workable.length} tin, ${latencyMs}ms`);
   return d;
 }

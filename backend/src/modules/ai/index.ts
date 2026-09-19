@@ -7,6 +7,7 @@ import type { ZaloCrmPlugin } from '../../plugin-api/index.js';
 import { aiRoutes } from './ai-routes.js';
 import { autoReplyRoutes } from './auto-reply/routes.js';
 import { groupAutoReplyRoutes } from './auto-reply/group-routes.js';
+import { telegramRoutes } from './telegram/telegram-routes.js';
 
 export const aiPlugin: ZaloCrmPlugin = {
   name: 'ai',
@@ -16,5 +17,6 @@ export const aiPlugin: ZaloCrmPlugin = {
     await app.register(aiRoutes);
     await app.register(autoReplyRoutes);
     await app.register(groupAutoReplyRoutes);
+    await app.register(telegramRoutes);
   },
 };

@@ -11,6 +11,7 @@ import { generateDraftForMessage } from './draft-service.js';
 import { isGroupWatched, scheduleGroupEvaluation } from './group-service.js';
 import { startBrainScheduler } from './brain-service.js';
 import { startAutoEnrollScheduler } from './auto-enroll-service.js';
+import { startTelegramAssistant } from '../telegram/telegram-assistant.js';
 
 let started = false;
 
@@ -64,5 +65,6 @@ export function startAutoReplyListener(): void {
 
   startBrainScheduler();
   startAutoEnrollScheduler();
+  startTelegramAssistant();
   logger.info('[auto-reply] listener đã bật — nháp cho chat 1-1, tự trả lời cho nhóm được chỉ định');
 }
