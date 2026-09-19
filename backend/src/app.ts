@@ -1,3 +1,4 @@
+// Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md.
 /**
  * Main application entry point.
  * Bootstraps Fastify server with all plugins, Socket.IO, and route handlers.
@@ -362,6 +363,10 @@ async function bootstrap() {
     if (config.nodeEnv !== 'test') {
       const { startAutomationEngine } = await import('./modules/automation/engine/index.js');
       startAutomationEngine();
+      // Trả lời tự động theo ngữ cảnh — bám vào event bus của engine, chỉ soạn
+      // nháp chờ người duyệt, không tự gửi tin cho khách.
+      const { startAutoReplyListener } = await import('./modules/ai/auto-reply/listener.js');
+      startAutoReplyListener();
       // Phase F — Broadcast scheduler: poll automation_broadcasts scheduled→running
       const { startBroadcastScheduler } = await import('./modules/automation/broadcasts/broadcast-scheduler.js');
       startBroadcastScheduler();

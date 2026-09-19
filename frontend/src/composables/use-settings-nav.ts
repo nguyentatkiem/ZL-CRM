@@ -1,3 +1,4 @@
+// Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md.
 /**
  * use-settings-nav.ts — Central config cho Settings sidebar.
  *
@@ -74,6 +75,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { id: 'tags', label: 'Tag CRM', icon: '🏷', route: '/settings/crm/tags', permission: 'admin' },
       { id: 'zalo-labels', label: 'Tag Zalo native', icon: '⚑', route: '/settings/crm/zalo-labels', permission: 'admin', aliases: ['zalo label'] },
       { id: 'scoring', label: 'Lead scoring', icon: '📊', route: '/settings/crm/scoring', permission: 'admin', aliases: ['điểm', 'chấm điểm'] },
+      { id: 'auto-reply', label: 'Trả lời tự động', icon: '🤖', route: '/settings/crm/auto-reply', permission: 'admin', aliases: ['auto reply', 'trả lời tự động', 'nháp', 'ai reply', 'kịch bản', 'playbook'] },
+      { id: 'group-auto-reply', label: 'AI trả lời nhóm', icon: '👥', route: '/settings/crm/group-auto-reply', permission: 'admin', aliases: ['nhóm', 'group', 'ai nhóm', 'trả lời nhóm', 'bot nhóm'] },
     ],
   },
 

@@ -1,3 +1,4 @@
+// Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md.
 import { prisma } from '../../shared/database/prisma-client.js';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -36,7 +37,7 @@ function buildConversationContext(messages: MessageContext[]) {
     .join('\n');
 }
 
-async function getProviderApiKey(orgId: string, provider: string) {
+export async function getProviderApiKey(orgId: string, provider: string) {
   /* 1. Check registry (env-based) */
   const providerDef = getProviderConfig(provider);
   if (providerDef?.authToken) return providerDef.authToken;
@@ -110,7 +111,7 @@ async function loadConversation(conversationId: string, orgId: string) {
   return { ...conversation, messages: [...conversation.messages].reverse() };
 }
 
-async function generateText(provider: string, apiKey: string, model: string, system: string, prompt: string, maxTokens?: number) {
+export async function generateText(provider: string, apiKey: string, model: string, system: string, prompt: string, maxTokens?: number) {
   const providerDef = getProviderConfig(provider);
   const baseUrl = providerDef?.baseUrl || '';
 

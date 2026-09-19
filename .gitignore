@@ -1,3 +1,4 @@
+# Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md.
 node_modules/
 dist/
 .env
@@ -28,3 +29,8 @@ backend/static/
 
 # Build-time schema overlays (local only) — quy ước thư mục _* trong prisma/schema/
 backend/prisma/schema/_*/
+
+# local install (khong commit)
+.env
+docker-compose.override.yml
+CAI-DAT-CUC-BO.md

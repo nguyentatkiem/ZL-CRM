@@ -1,3 +1,4 @@
+<!-- Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md. -->
 <template>
   <div
     class="message-thread"
@@ -338,6 +339,19 @@
       <!-- Typing indicator -->
       <TypingIndicator :typers="currentTypers" />
 
+      <!-- Công tắc nhanh AI tự trả lời — chỉ hiện ở nhóm -->
+      <GroupAutoReplyToggle
+        v-if="conversation.threadType === 'group'"
+        :conversation-id="conversation.id"
+      />
+
+      <!-- Nháp trả lời tự động theo ngữ cảnh — chỉ chat 1-1, không tự gửi -->
+      <AutoReplyDraftBar
+        v-if="conversation.threadType === 'user'"
+        :conversation-id="conversation.id"
+        @use="applySuggestion"
+      />
+
       <!-- AI suggest bar -->
       <AISuggestBar
         :suggestion="aiSuggestion"
@@ -621,6 +635,8 @@ import type { Conversation, Message } from '@/composables/use-chat';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
 import AISuggestBar from '@/components/chat/AISuggestBar.vue';
+import AutoReplyDraftBar from '@/components/chat/AutoReplyDraftBar.vue';
+import GroupAutoReplyToggle from '@/components/chat/GroupAutoReplyToggle.vue';
 import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import EmojiPicker from '@/components/chat/EmojiPicker.vue';

@@ -1,3 +1,4 @@
+<!-- Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md. -->
 <template>
   <v-app class="smax-app">
     <!-- ════════ TOP NAV (Smax-style dark, h=52px) ════════ -->
@@ -138,6 +139,9 @@
       <slot />
     </v-main>
 
+    <!-- Popup nổi: hỏi AI về tình trạng khách hàng hôm nay -->
+    <DailyBriefFab />
+
     <!-- Global toast queue -->
     <ToastContainer />
   </v-app>
@@ -153,6 +157,7 @@ import NotificationBell from '@/components/NotificationBell.vue';
 import GlobalSearch from '@/components/GlobalSearch.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
 import ExtensionSlot from '@/components/ExtensionSlot.vue';
+import DailyBriefFab from '@/components/ai/DailyBriefFab.vue';
 const theme = useTheme();
 const route = useRoute();
 const authStore = useAuthStore();

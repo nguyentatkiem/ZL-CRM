@@ -1,8 +1,10 @@
+// Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireRole } from '../auth/role-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { getAiConfig, getAiUsage, updateAiConfig, generateAiOutput, aiFormatRichText } from './ai-service.js';
+import { buildDailyBriefSnapshot, askDailyBrief } from './daily-brief-service.js';
 import { getAvailableProviders } from './provider-registry.js';
 import { logger } from '../../shared/utils/logger.js';
 import { prisma } from '../../shared/database/prisma-client.js';
@@ -110,6 +112,37 @@ export async function aiRoutes(app: FastifyInstance) {
     } catch (err) {
       logger.error('[ai] Sentiment error:', err);
       return sendHandledError(reply, err, 'Failed to analyze sentiment');
+    }
+  });
+
+  /* ── Popup "Tình trạng khách hàng hôm nay" ──────────────────────────────
+   * snapshot: số liệu thuần SQL, hiện ngay khi mở popup, KHÔNG gọi AI.
+   * ask:      snapshot + câu hỏi tự do → AI trả lời.
+   * Cả hai đã lọc theo nick Zalo user được xem (nick riêng tư của người khác
+   * bị loại kể cả với owner/admin) — xem daily-brief-service.ts.
+   */
+  app.get('/api/v1/ai/daily-brief/snapshot', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      return await buildDailyBriefSnapshot(request.user!);
+    } catch (err) {
+      logger.error('[ai] Daily brief snapshot error:', err);
+      return reply.status(500).send({ error: 'Không lấy được tình trạng khách hàng hôm nay' });
+    }
+  });
+
+  app.post('/api/v1/ai/daily-brief/ask', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const body = (request.body ?? {}) as { question?: string };
+      return await askDailyBrief({ user: request.user!, question: body.question });
+    } catch (err) {
+      logger.error('[ai] Daily brief ask error:', err);
+      const message = err instanceof Error ? err.message : '';
+      // Lỗi do người dùng (hỏi quá nhanh / quá dài / AI tắt / thiếu khoá) trả 400
+      // kèm nguyên văn để popup hiện được lý do; lỗi khác giấu chi tiết.
+      if (/quá nhanh|quá dài|đang tắt|Chưa cấu hình/.test(message)) {
+        return reply.status(400).send({ error: message });
+      }
+      return sendHandledError(reply, err, 'Không hỏi được AI về tình trạng khách hàng');
     }
   });
 

@@ -1,3 +1,4 @@
+// Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md.
 generator client {
   provider = "prisma-client-js"
 }
@@ -75,6 +76,14 @@ model Organization {
   facebookPageConnections FacebookPageConnection[]
   facebookFormMappings    FacebookFormMapping[]
   systemNotifyRecipients    SystemNotifyRecipient[]
+
+  // Trả lời tự động theo ngữ cảnh (TAKI thêm)
+  autoReplyConfig      AutoReplyConfig?
+  salesPlaybookEntries SalesPlaybookEntry[]
+  autoReplyDrafts      AutoReplyDraft[]
+  groupAutoReplyRules  GroupAutoReplyRule[]
+  groupAutoReplyLogs   GroupAutoReplyLog[]
+  groupKnowledge       GroupKnowledge[]
 
   @@map("organizations")
 }
@@ -154,6 +163,10 @@ model User {
   // Phase FB — Facebook Lead Ingestion
   customerListAssignments   CustomerListSaleAssignment[]
   systemNotifyRecipients    SystemNotifyRecipient[]
+
+  // Trả lời tự động theo ngữ cảnh (TAKI thêm)
+  playbookEntriesCreated SalesPlaybookEntry[] @relation("PlaybookCreatedBy")
+  autoReplyDraftsUsed    AutoReplyDraft[]     @relation("DraftUsedBy")
 
   @@map("users")
 }
@@ -518,6 +531,10 @@ model Conversation {
   messages      Message[]
   aiSuggestions AiSuggestion[]
   pins          PinnedConversation[]
+  autoReplyDrafts AutoReplyDraft[]
+  groupAutoReplyRule GroupAutoReplyRule?
+  groupAutoReplyLogs GroupAutoReplyLog[]
+  groupKnowledge     GroupKnowledge[]
 
   @@unique([zaloAccountId, externalThreadId])
   @@index([orgId, zaloAccountId, isReplied, lastMessageAt])
@@ -2295,4 +2312,218 @@ model SaleAssignmentState {
   customerList CustomerList @relation(fields: [customerListId], references: [id], onDelete: Cascade)
 
   @@map("sale_assignment_states")
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Trả lời tự động theo ngữ cảnh (TAKI thêm, 09/2026)
+// ════════════════════════════════════════════════════════════════════════
+// Chế độ hoạt động: SOẠN NHÁP, KHÔNG TỰ GỬI. Khi khách nhắn tin 1-1, engine
+// sinh sẵn một câu trả lời dựa trên lịch sử chat + hồ sơ CRM + kho kịch bản
+// + mẫu tin có sẵn, rồi đẩy nháp lên khung chat. Nhân viên bấm "Dùng" để chèn
+// vào ô soạn tin — người gửi thật vẫn là nhân viên, mọi guard của route gửi
+// tin (privacy, rate limit) giữ nguyên.
+
+model AutoReplyConfig {
+  id      String  @id @default(uuid())
+  orgId   String  @unique @map("org_id")
+  enabled Boolean @default(false)
+
+  // Rỗng = áp dụng mọi nick. Có phần tử = chỉ các nick được liệt kê.
+  // Nick privacy_mode='main' luôn bị loại, bất kể danh sách này.
+  accountIds Json @default("[]") @map("account_ids")
+
+  // Giờ làm việc theo giờ VN — ngoài khung này không sinh nháp.
+  hourStart Int @default(7) @map("hour_start")
+  hourEnd   Int @default(22) @map("hour_end")
+
+  // Trần số nháp mỗi ngày toàn org — chặn đốt quota AI khi tin về dồn dập.
+  maxDraftsPerDay Int @default(200) @map("max_drafts_per_day")
+
+  // Không sinh nháp mới nếu hội thoại đó vừa sinh nháp trong X giây.
+  minGapSeconds Int @default(90) @map("min_gap_seconds")
+
+  // Không sinh nháp nếu nhân viên vừa trả lời khách trong X phút
+  // (đang có người trực thì để người trực làm).
+  skipIfStaffRepliedWithinMin Int @default(3) @map("skip_if_staff_replied_within_min")
+
+  // Nháp quá hạn này thì coi như hết giá trị, FE không hiện nữa.
+  draftTtlMinutes Int @default(120) @map("draft_ttl_minutes")
+
+  // Từ khoá nhạy cảm — khách nhắn trúng thì KHÔNG sinh nháp, để người thật xử lý.
+  // Mặc định seed các từ về khiếu nại, pháp lý, hoàn tiền.
+  blockedKeywords Json @default("[]") @map("blocked_keywords")
+
+  // Lời dặn riêng của chủ doanh nghiệp, ghép vào prompt (giọng điệu, xưng hô, điều cấm).
+  extraInstruction String? @map("extra_instruction")
+
+  // Công tắc TỔNG cho trả lời tự động trong NHÓM. Tắt là mọi nhóm dừng ngay,
+  // kể cả nhóm đang bật riêng. Khác phần 1-1 ở trên: nhóm là TỰ GỬI, không nháp.
+  groupEnabled Boolean @default(false) @map("group_enabled")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("auto_reply_configs")
+}
+
+// Kho kịch bản bán hàng do chủ doanh nghiệp soạn. AI chọn mục khớp nhất theo
+// từ khoá rồi bám vào đó, thay vì tự nghĩ ra giá và chính sách.
+model SalesPlaybookEntry {
+  id       String  @id @default(uuid())
+  orgId    String  @map("org_id")
+  title    String
+  category String? // vd: bảng giá, xử lý từ chối, chính sách, giới thiệu
+  // Từ khoá kích hoạt, mảng chuỗi. Rỗng = luôn được cân nhắc.
+  keywords Json    @default("[]")
+  content  String  @db.Text
+  priority Int     @default(0) // cao hơn thì được ưu tiên đưa vào prompt
+  enabled  Boolean @default(true)
+
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("PlaybookCreatedBy", fields: [createdById], references: [id])
+
+  @@index([orgId, enabled, priority])
+  @@map("sales_playbook_entries")
+}
+
+// Một nháp trả lời do AI soạn cho một tin nhắn đến cụ thể.
+model AutoReplyDraft {
+  id              String  @id @default(uuid())
+  orgId           String  @map("org_id")
+  conversationId  String  @map("conversation_id")
+  contactId       String? @map("contact_id")
+  sourceMessageId String  @map("source_message_id") // tin của khách đã kích hoạt nháp này
+
+  content String @db.Text
+  // Ghi lại AI đã dựa vào đâu — để người duyệt hiểu vì sao có câu này.
+  rationale     String? @db.Text
+  playbookUsed  Json    @default("[]") @map("playbook_used") // mảng title của mục kịch bản đã dùng
+  provider      String?
+  model         String?
+  latencyMs     Int?    @map("latency_ms")
+
+  // pending = đang chờ người duyệt; used = đã chèn vào ô soạn tin;
+  // dismissed = người duyệt bỏ; superseded = có nháp mới hơn cho cùng hội thoại;
+  // expired = quá hạn TTL.
+  state        String    @default("pending")
+  usedByUserId String?   @map("used_by_user_id")
+  usedAt       DateTime? @map("used_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  usedBy       User?        @relation("DraftUsedBy", fields: [usedByUserId], references: [id])
+
+  @@index([orgId, state, createdAt])
+  @@index([conversationId, state, createdAt])
+  @@map("auto_reply_drafts")
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// Trả lời tự động trong NHÓM Zalo (TAKI thêm, 09/2026)
+// ════════════════════════════════════════════════════════════════════════
+// Khác phần 1-1: ở đây AI TỰ GỬI tin vào nhóm, chỉ với nhóm được chỉ định.
+// Mỗi nhóm một quy tắc riêng. AI được quyền IM LẶNG khi tin không cần trả lời.
+
+model GroupAutoReplyRule {
+  id             String  @id @default(uuid())
+  orgId          String  @map("org_id")
+  conversationId String  @unique @map("conversation_id")
+  enabled        Boolean @default(false)
+
+  // Khi nào AI mới xét tin:
+  //   mention  — chỉ khi được gọi tên (@tên nick hoặc một trong callNames)
+  //   question — khi được gọi tên HOẶC tin là câu hỏi (mặc định)
+  //   all      — xét mọi tin, AI tự quyết có nên chen vào không
+  triggerMode String @default("question") @map("trigger_mode")
+  callNames   Json   @default("[]") @map("call_names") // tên gọi AI trong nhóm, vd ["ad", "trợ lý"]
+
+  instruction String? @db.Text // lời dặn riêng cho nhóm này: vai trò, giọng, điều cấm
+
+  maxRepliesPerHour Int     @default(6) @map("max_replies_per_hour")
+  minGapSeconds     Int     @default(120) @map("min_gap_seconds")
+  hourStart         Int     @default(7) @map("hour_start")
+  hourEnd           Int     @default(22) @map("hour_end")
+  quoteOriginal     Boolean @default(true) @map("quote_original") // trả lời dạng trích dẫn tin người hỏi
+
+  // Luôn trả lời, không im lặng. Câu không có thông tin thì AI ghi nhận và hẹn người
+  // thật trả lời, KHÔNG bịa. Tin dồn dập được gộp thành một tin gọi tên từng người.
+  alwaysReply Boolean @default(false) @map("always_reply")
+
+  // Danh tính + xưng hô. Tin gửi đi dưới nick của ai thì AI phải nói ĐÚNG vai người
+  // đó — vd giảng viên thì tự xưng "Thầy", không xưng "em" như trợ lý, và không được
+  // nhắc tới chính mình ở ngôi thứ ba ("để Thầy trả lời").
+  speakerRole    String? @map("speaker_role")     // vd: Giảng viên khoá đào tạo
+  selfPronoun    String? @map("self_pronoun")     // tự xưng: Thầy / Cô / tôi / mình / em
+  groupPronoun   String? @map("group_pronoun")    // gọi cả nhóm: các bạn / cả nhà / anh chị
+  memberPronoun  String? @map("member_pronoun")   // gọi riêng một người: bạn / em / anh/chị
+
+  // Bộ não tự học: AI rút điều chắc chắn từ tin do NGƯỜI THẬT của tổ chức gõ tay
+  // trong nhóm (không học từ tin thành viên, không học từ tin AI tự gửi).
+  brainEnabled  Boolean   @default(true) @map("brain_enabled")
+  lastLearnedAt DateTime? @map("last_learned_at")
+
+  updatedById String?  @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, enabled])
+  @@map("group_auto_reply_rules")
+}
+
+// Nhật ký mỗi lần AI xét một tin trong nhóm — để biết AI đã nói gì, vì sao im.
+model GroupAutoReplyLog {
+  id              String  @id @default(uuid())
+  orgId           String  @map("org_id")
+  conversationId  String  @map("conversation_id")
+  sourceMessageId String? @map("source_message_id")
+
+  // sent | ai_declined | skipped | failed | dry_run
+  decision  String
+  reason    String?
+  content   String? @db.Text
+  zaloMsgId String? @map("zalo_msg_id")
+  latencyMs Int?    @map("latency_ms")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, decision, createdAt])
+  @@index([orgId, createdAt])
+  @@map("group_auto_reply_logs")
+}
+
+
+// Bộ não nhóm — mỗi hàng là một điều AI đã biết về nhóm, dùng khi trả lời.
+// Nguồn 'learned' do AI tự rút từ tin người thật của tổ chức; 'manual' do quản trị thêm tay.
+// Chủ nhóm xem/sửa/tắt từng điều được — AI tự ghi nên phải có quyền kiểm soát.
+model GroupKnowledge {
+  id              String   @id @default(uuid())
+  orgId           String   @map("org_id")
+  conversationId  String   @map("conversation_id")
+  content         String   @db.Text
+  source          String   @default("learned") // learned | manual
+  sourceMessageId String?  @map("source_message_id")
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, enabled, updatedAt])
+  @@map("group_knowledge")
 }

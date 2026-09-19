@@ -1,3 +1,4 @@
+<!-- Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md. -->
 <template>
   <v-app>
     <OfflineIndicator />
@@ -29,6 +30,8 @@
       </div>
     </v-main>
 
+    <DailyBriefFab />
+
     <BottomNav />
   </v-app>
 </template>
@@ -40,6 +43,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import BottomNav from '@/components/BottomNav.vue';
+import DailyBriefFab from '@/components/ai/DailyBriefFab.vue';
 import OfflineIndicator from '@/components/OfflineIndicator.vue';
 
 const theme = useTheme();

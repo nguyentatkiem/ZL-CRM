@@ -1,3 +1,4 @@
+// Đã sửa bởi TAKI Academy (09/2026): thêm tính năng AI trả lời tự động. Xem NGUON-GOC.md.
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
@@ -106,6 +107,8 @@ const routes = [
       { path: 'crm/tags',        name: 'Settings.Tags',        component: () => import('@/components/settings/CrmTagManagement.vue') },
       { path: 'crm/zalo-labels', name: 'Settings.ZaloLabels',  component: () => import('@/components/settings/ZaloLabelsManagement.vue') },
       { path: 'crm/scoring',     name: 'Settings.Scoring',     component: () => import('@/views/ScoringSettingsView.vue') },
+      { path: 'crm/auto-reply',  name: 'Settings.AutoReply',   component: () => import('@/views/settings/AutoReplySettingsView.vue') },
+      { path: 'crm/group-auto-reply', name: 'Settings.GroupAutoReply', component: () => import('@/views/settings/GroupAutoReplySettingsView.vue') },
 
       // 🔌 Channels & Integrations
       { path: 'channels/zalo',         name: 'Settings.ZaloAccounts', component: () => import('@/views/ZaloAccountsView.vue') },
