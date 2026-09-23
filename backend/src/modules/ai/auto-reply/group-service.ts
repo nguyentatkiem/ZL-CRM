@@ -225,8 +225,21 @@ export function enforceHonesty(reply: string, batchText: string, self: string | 
  * code: dòng nào vừa nhắc thông tin đăng nhập vừa bảo gửi/đăng/nộp → thay bằng
  * lời nhắc an toàn. Dòng đã có ý phủ định ("không gửi mật khẩu") thì giữ nguyên. */
 const CRED = /(mat khau|password|\bpass\b|user ?\/ ?pass|\botp\b|ma xac thuc|tai khoan dang nhap|thong tin dang nhap)/;
+/* Mật khẩu wifi, phòng họp, link Zoom của lớp là thông tin hậu cần bình thường,
+   không phải tài khoản cá nhân. Nhắc nhở ở đây chỉ làm phiền thành viên. */
+const CRED_PUBLIC = /(wifi|wi-fi|hoi truong|phong hop|phong hoc|zoom|meeting|lop hoc|may chieu)/;
 const ASK_SEND = /(gui|dang len|dang vao|nop|post|de lai|share|chia se|len nhom|vao nhom|cho thay|cho minh|cho em)/;
 const NEGATE = /(khong (duoc |nen )?(gui|dang|chia se|nop|de lo)|tuyet doi khong|dung (gui|dang)|khong bao gio)/;
+
+/* Guardrail nội dung TAKI: không dùng dấu gạch ngang dài trong tin gửi khách.
+   Dặn trong prompt không đủ, mô hình vẫn chèn, nên thay luôn bằng code. */
+export function cleanStyle(text: string) {
+  return text
+    .replace(/\s+[—–]\s+/g, ', ')
+    .replace(/[—–]/g, ',')
+    .replace(/,\s*,/g, ',')
+    .replace(/\s+([,.])/g, '$1');
+}
 
 export function enforceNoCredentials(reply: string, self: string | null, names: string[] = []): { text: string; fixed: boolean } {
   let fixed = false;
@@ -234,7 +247,7 @@ export function enforceNoCredentials(reply: string, self: string | null, names: 
   const sorted = [...new Set(names.filter(Boolean))].sort((a, b) => b.length - a.length);
   const text = reply.split('\n').map((line) => {
     const f = fold(line);
-    if (CRED.test(f) && ASK_SEND.test(f) && !NEGATE.test(f)) {
+    if (CRED.test(f) && ASK_SEND.test(f) && !NEGATE.test(f) && !CRED_PUBLIC.test(f)) {
       fixed = true;
       // giữ nguyên chuỗi @tên ở đầu dòng (có thể nhiều người), khớp theo tên thật trong đợt tin
       let rest = line.trimStart();
@@ -660,6 +673,8 @@ export async function evaluateGroupMessage(input: {
     honestyFixed = true;
   }
 
+  if (parsed.reply) parsed.reply = cleanStyle(parsed.reply);
+
   /* Lớp chặn cứng: không bảo ai gửi mật khẩu / tài khoản lên nhóm. */
   if (parsed.reply) {
     const c = enforceNoCredentials(parsed.reply, rule.selfPronoun, workable.map((m) => m.senderName || ''));
@@ -698,7 +713,7 @@ export async function evaluateGroupMessage(input: {
       // viết lại xong vẫn phải qua lại các lớp chặn cứng
       let fixedText = enforceHonesty(v.text, batchText, rule.selfPronoun, workable.map((m) => m.senderName || '')).text;
       fixedText = enforceNoCredentials(fixedText, rule.selfPronoun, workable.map((m) => m.senderName || '')).text;
-      parsed.reply = fixedText;
+      parsed.reply = cleanStyle(fixedText);
       groundingNote = ` [kiểm duyệt đã sửa ${v.unsupported.length} khẳng định không căn cứ: ${v.unsupported.slice(0, 3).join('; ')}]`;
       logger.warn(`[group-auto-reply] kiểm duyệt đã sửa khẳng định không căn cứ conv=${conversationId}: ${v.unsupported.join(' | ')}`);
     }

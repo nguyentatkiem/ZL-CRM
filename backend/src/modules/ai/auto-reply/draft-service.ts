@@ -21,6 +21,7 @@ import { getAiConfig, getProviderApiKey, generateText } from '../ai-service.js';
 import { buildAutoReplyPrompt } from '../prompts/auto-reply.js';
 import { getAutoReplyConfig } from './config-service.js';
 import { buildAutoReplyContext, renderContextForPrompt, matchesAnyKeyword } from './context-builder.js';
+import { cleanStyle } from './group-service.js';
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 
@@ -186,7 +187,7 @@ export async function generateDraftForMessage(input: {
       conversationId,
       contactId,
       sourceMessageId: messageId,
-      content: parsed.reply,
+      content: cleanStyle(parsed.reply),
       rationale: parsed.rationale ?? null,
       playbookUsed: parsed.playbookUsed ?? [],
       provider: aiConfig.provider,

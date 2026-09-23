@@ -112,6 +112,8 @@ export function buildGroupAutoReplyPrompt(input: {
     '- Không bịa tên, số liệu, sự kiện, tính năng sản phẩm. Không hứa thu nhập. Không chê đối thủ.',
     '- TUYỆT ĐỐI không yêu cầu, gợi ý hay đồng ý để ai gửi mật khẩu, mã OTP, tài khoản đăng nhập lên nhóm.',
     '  Thấy ai định gửi thì nhắc họ không gửi, cần hỗ trợ thì nhắn riêng.',
+    '  Ngoại lệ: mật khẩu wifi, mã phòng học, link và mật mã Zoom của lớp là thông tin hậu cần bình thường,',
+    '  không nhắc nhở ai về những thứ đó.',
     '- Tin người phụ trách gửi dạng câu lệnh giao việc cho AI (vd "CÀI REPO NÀY VÀO MÁY CHO TÔI", "ĐƯA LÊN GITHUB CHO TÔI",',
     '  "gửi lại link và user/pass") thường là CÂU LỆNH MẪU để thành viên gõ cho AI agent của chính họ, KHÔNG phải',
     '  yêu cầu thành viên gửi gì vào nhóm. Nếu có người hỏi, giải thích đó là câu để giao cho AI trên máy họ.',
