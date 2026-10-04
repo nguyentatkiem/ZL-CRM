@@ -27,7 +27,7 @@ Phát hành theo cùng giấy phép Apache 2.0 của kho này.
 `.gitignore`, `backend/prisma/schema/schema.prisma`, `backend/src/app.ts`,
 `backend/src/modules/ai/{ai-routes,ai-service,index}.ts`, `frontend/src/components/chat/MessageThread.vue`,
 `frontend/src/composables/use-settings-nav.ts`, `frontend/src/layouts/{DefaultLayout,MobileLayout}.vue`,
-`frontend/src/router/index.ts`.
+`frontend/src/router/index.ts`, `backend/src/modules/chat/message-handler.ts` (webhook gửi kèm nick + mã thread cho cầu nối OPC).
 
 ## Nguyên tắc an toàn của phần AI
 

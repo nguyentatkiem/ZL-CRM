@@ -1,6 +1,9 @@
 /**
  * message-handler.ts — persists incoming Zalo messages to the database.
  * Called from zalo-pool's startListener on every 'message' / 'undo' event.
+ *
+ * Đã sửa bởi TAKI Academy: webhook message.* gửi kèm nick (zaloAccountId), mã thread Zalo,
+ * loại thread và tên khách để hệ thống ngoài (vd. OPC Agentic AI) trả lời đúng hội thoại qua Public API.
  */
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -489,6 +492,11 @@ export async function handleIncomingMessage(
       messageId: message.id,
       conversationId: conversation.id,
       senderUid: msg.senderUid,
+      // Đủ để gọi lại POST /api/public/messages/send { zaloAccountId, threadId, threadType }.
+      zaloAccountId: msg.accountId,
+      threadId: msg.threadId,
+      threadType: msg.threadType,
+      contactName: msg.threadType === 'group' ? (msg.groupName ?? null) : (msg.isSelf ? (msg.recipientName ?? null) : msg.senderName),
       content: msg.content,
       contentType: msg.contentType,
       sentAt: message.sentAt,
